@@ -1,22 +1,11 @@
 export default async function handler(req, res) {
-    // Default date range (3 months ago to 7 days ago)
-    const today = new Date();
-    const sevenDaysAgo = new Date(today);
-    sevenDaysAgo.setDate(today.getDate() - 7);
+    const { startDate, endDate } = req.query;
 
-    const threeMonthsAgo = new Date(today);
-    threeMonthsAgo.setMonth(today.getMonth() - 3);
-
-    // Set default dates if not provided by query parameters
-    const startDate = req.query.startDate || threeMonthsAgo.toISOString().split('T')[0];  // Default to 3 months ago
-    const endDate = req.query.endDate || sevenDaysAgo.toISOString().split('T')[0];  // Default to 7 days ago
-
-    // Validate that both startDate and endDate are provided
+    // Validate the presence of required query parameters
     if (!startDate || !endDate) {
-        return res.status(400).json({ error: 'Start date and end date are required' });
+        return res.status(400).json({ error: 'Missing startDate or endDate query parameter' });
     }
 
-    // Set up the Skydio API request options
     const options = {
         method: 'GET',
         headers: {
@@ -25,25 +14,21 @@ export default async function handler(req, res) {
         },
     };
 
-    // Construct the API URL with the date filters and additional parameters
-    const url = `https://api.skydio.com/api/v0/flights?takeoff_before=${endDate}&takeoff_since=${startDate}&per_page=500&page_number=1`;
-
     try {
-        // Make the request to Skydio API
-        const apiResponse = await fetch(url, options);
+        const apiUrl = `https://api.skydio.com/api/v0/flights?takeoff_since=${startDate}&takeoff_before=${endDate}&per_page=500&page_number=1`;
+        const response = await fetch(apiUrl, options);
 
-        // Check if the response is successful
-        if (!apiResponse.ok) {
-            const data = await apiResponse.json();
-            return res.status(apiResponse.status).json(data);
+        if (!response.ok) {
+            throw new Error(`Skydio API responded with status ${response.status}`);
         }
 
-        // Parse and send the data back
-        const data = await apiResponse.json();
-        return res.status(200).json(data);
+        const data = await response.json();
+
+        res.status(200).json({
+            data: data.data?.flights || [], // Ensure flights is always an array
+        });
     } catch (error) {
-        // Log any error that occurs during the API request
-        console.error('Error fetching drone data:', error);
-        return res.status(500).json({ error: 'An error occurred while fetching drone data' });
+        console.error('Error fetching flights:', error);
+        res.status(500).json({ error: 'Failed to fetch flights from Skydio API' });
     }
 }

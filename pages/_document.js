@@ -1,5 +1,3 @@
-// pages/_document.js
-
 import Document, { Html, Head, Main, NextScript } from 'next/document';
 
 class MyDocument extends Document {
@@ -7,7 +5,13 @@ class MyDocument extends Document {
         return (
             <Html lang="en">
                 <Head>
-                    {/* Any custom meta tags or external CSS can go here */}
+                    {/* Include the MarkerCluster CSS from CDN */}
+                    <link
+                        rel="stylesheet"
+                        href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css"
+                        integrity="sha384-XYZ"  // You may use the appropriate integrity hash
+                        crossOrigin="anonymous"
+                    />
                 </Head>
                 <body>
                     <Main />

@@ -1,21 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 
-// Dynamically import Leaflet components to disable SSR
 const MapContainer = dynamic(() => import('react-leaflet').then((mod) => mod.MapContainer), { ssr: false });
 const TileLayer = dynamic(() => import('react-leaflet').then((mod) => mod.TileLayer), { ssr: false });
 const Marker = dynamic(() => import('react-leaflet').then((mod) => mod.Marker), { ssr: false });
 const Popup = dynamic(() => import('react-leaflet').then((mod) => mod.Popup), { ssr: false });
+const MarkerClusterGroup = dynamic(() => import('react-leaflet-markercluster'), { ssr: false });
+import 'leaflet/dist/leaflet.css';
 
-import 'leaflet/dist/leaflet.css'; // Import Leaflet styles
-
-const HomePage = () => {
-    const [droneData, setDroneData] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
+const HomePage = ({ flights = [] }) => {
+    const [customClusterIcon, setCustomClusterIcon] = useState(null);
+    const [filteredFlights, setFilteredFlights] = useState(flights);
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
-    const [filteredData, setFilteredData] = useState([]);
+    const [error, setError] = useState('');
 
     const today = new Date();
     const last7Days = new Date(today);
@@ -24,100 +22,131 @@ const HomePage = () => {
     const twoYearsAgo = new Date(today);
     twoYearsAgo.setFullYear(today.getFullYear() - 2);
 
-    // Fetch drone data from the API
     useEffect(() => {
-        const fetchDroneData = async () => {
-            try {
-                const response = await fetch(`/api/skydio?startDate=${startDate}&endDate=${endDate}`);
-                const data = await response.json();
-
-                if (response.ok) {
-                    setDroneData(data.data.flights || []);
-                } else {
-                    setError('Failed to fetch drone data');
-                }
-            } catch (err) {
-                setError('Error fetching data');
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchDroneData();
-    }, [startDate, endDate]); // Fetch when dates are changed
-
-    useEffect(() => {
-        if (startDate && endDate) {
-            const filtered = droneData.filter((flight) => {
-                const takeoffDate = new Date(flight.takeoff);
-                return takeoffDate >= new Date(startDate) && takeoffDate <= new Date(endDate);
+        const L = require('leaflet');
+        const createClusterCustomIcon = (cluster) => {
+            return L.divIcon({
+                html: `
+                    <div style="
+                        background: rgba(0, 123, 255, 0.6);
+                        color: white;
+                        border-radius: 50%;
+                        width: 40px;
+                        height: 40px;
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        font-size: 16px;
+                        font-weight: bold;
+                        border: 2px solid white;">
+                        ${cluster.getChildCount()}
+                    </div>`,
+                className: 'marker-cluster-custom',
+                iconSize: L.point(40, 40), // Use L.point here
             });
-            setFilteredData(filtered);
-        } else {
-            setFilteredData(droneData);
+        };
+        setCustomClusterIcon(() => createClusterCustomIcon);
+    }, []);
+
+    const handleStartDateChange = (e) => setStartDate(e.target.value);
+    const handleEndDateChange = (e) => setEndDate(e.target.value);
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!startDate || !endDate) {
+            setError('Please select both start and end dates.');
+            return;
         }
-    }, [startDate, endDate, droneData]);
 
-    const handleStartDateChange = (e) => {
-        setStartDate(e.target.value);
+        const selectedEndDate = new Date(endDate);
+        const selectedStartDate = new Date(startDate);
+        const sevenDaysAgo = new Date(today);
+        sevenDaysAgo.setDate(today.getDate() - 7);
+
+        if (selectedEndDate >= sevenDaysAgo) {
+            setError('End date must be at least 7 days prior to today.');
+            return;
+        }
+
+        if (selectedStartDate > selectedEndDate) {
+            setError('Start date must be earlier than or equal to the end date.');
+            return;
+        }
+
+        setError('');
+        try {
+            const res = await fetch(`/api/skydio?startDate=${startDate}&endDate=${endDate}`);
+            if (!res.ok) throw new Error('Failed to fetch flights');
+            const data = await res.json();
+            setFilteredFlights(data.data || []);
+        } catch (err) {
+            console.error(err);
+            setError(err.message);
+        }
     };
-
-    const handleEndDateChange = (e) => {
-        setEndDate(e.target.value);
-    };
-
-    if (loading) return <p>Loading drone locations...</p>;
-    if (error) return <p>{error}</p>;
 
     return (
         <div>
-            <h1>Drone Locations</h1>
-
-            <div>
+            <h1>Oklahoma City Public Safety&apos;s UAS Locations</h1>
+            <h3>This will only display up to 500 locations at once and no locations in the last 7 days</h3>
+            <form onSubmit={handleSubmit}>
                 <label>Start Date: </label>
                 <input
                     type="date"
                     value={startDate}
                     onChange={handleStartDateChange}
-                    max={last7Days.toISOString().split('T')[0]} // Prevent selecting dates within the last 7 days
-                    min={twoYearsAgo.toISOString().split('T')[0]} // Allow selecting dates up to two years ago
+                    min={twoYearsAgo.toISOString().split('T')[0]}
+                    max={last7Days.toISOString().split('T')[0]}
                 />
-
-                <label>End Date: </label>
+                <label> End Date: </label>
                 <input
                     type="date"
                     value={endDate}
                     onChange={handleEndDateChange}
-                    max={last7Days.toISOString().split('T')[0]} // Prevent selecting dates within the last 7 days
-                    min={twoYearsAgo.toISOString().split('T')[0]} // Allow selecting dates up to two years ago
+                    min={twoYearsAgo.toISOString().split('T')[0]}
+                    max={last7Days.toISOString().split('T')[0]}
                 />
-            </div>
+                <button type="submit" style={{ marginLeft: '10px' }}>Filter Flights</button>
 
-            <div style={{ height: '1000px', width: '100%' }}>
-                <MapContainer center={[35.4676, -97.5164]} zoom={10} style={{ height: '100%' }}>
-                    <TileLayer
-                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                        attribution="&copy; OpenStreetMap contributors"
-                    />
-                    {filteredData
-                        .filter((flight) => flight.takeoff_latitude && flight.takeoff_longitude)
-                        .map((flight) => (
-                            <Marker
-                                key={flight.flight_id}
-                                position={[flight.takeoff_latitude, flight.takeoff_longitude]}
-                            >
-                                <Popup>
-                                    <strong>Flight ID:</strong> {flight.flight_id} <br />
-                                    <strong>User Email:</strong> {flight.user_email} <br />
-                                    <strong>Has Telemetry:</strong> {flight.has_telemetry ? 'Yes' : 'No'} <br />
-                                    <strong>Takeoff Time:</strong> {new Date(flight.takeoff).toLocaleString()} <br />
-                                    <strong>Landing Time:</strong> {new Date(flight.landing).toLocaleString()} <br />
-                                    <strong>Vehicle Serial:</strong> {flight.vehicle_serial} <br />
-                                </Popup>
-                            </Marker>
-                        ))}
-                </MapContainer>
-            </div>
+                <h3></h3>
+            </form>
+            {error && <p style={{ color: 'red' }}>{error}</p>}
+
+            <MapContainer center={[35.4676, -97.5164]} zoom={11} style={{ height: '85vh' }}>
+                <TileLayer
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    attribution="&copy; OpenStreetMap contributors"
+                />
+                {customClusterIcon && (
+                    <MarkerClusterGroup iconCreateFunction={customClusterIcon}>
+                        {Array.isArray(filteredFlights) &&
+                            filteredFlights
+                                .filter(
+                                    (flight) =>
+                                        flight.takeoff_latitude &&
+                                        flight.takeoff_longitude
+                                )
+                                .map((flight) => (
+                                    <Marker
+                                        key={flight.flight_id}
+                                        position={[flight.takeoff_latitude, flight.takeoff_longitude]}
+                                    >
+                                        <Popup>
+                                            <p>
+                                                <strong>Flight ID:</strong> {flight.flight_id} <br />
+                                                <strong>Takeoff:</strong> {new Date(flight.takeoff).toLocaleString()} <br />
+                                                <strong>Landing:</strong> {flight.landing
+                                                    ? new Date(flight.landing).toLocaleString()
+                                                    : 'N/A'}{' '}
+                                                <br />
+                                                <strong>Vehicle Serial:</strong> {flight.vehicle_serial}
+                                            </p>
+                                        </Popup>
+                                    </Marker>
+                                ))}
+                    </MarkerClusterGroup>
+                )}
+            </MapContainer>
         </div>
     );
 };
